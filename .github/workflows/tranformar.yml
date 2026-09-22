@@ -1,0 +1,95 @@
+name: Transformar Encuesta Especial
+
+on:
+  # Ejecucion manual desde la pestaña Actions.
+  workflow_dispatch:
+    inputs:
+      modo:
+        description: "Modo de ejecucion"
+        type: choice
+        required: true
+        default: incremental
+        options:
+          - incremental
+          - total
+      dry_run:
+        description: "Solo calcular, sin escribir"
+        type: boolean
+        required: false
+        default: false
+
+  # Gatillo externo (cron-job.org). El event_type define el modo:
+  #   {"event_type": "incremental"}  o  {"event_type": "total"}
+  repository_dispatch:
+    types:
+      - incremental
+      - total
+
+  # Respaldo nativo, por si cron-job.org falla. Las horas van en UTC y GitHub
+  # no respeta el horario de Chile: en horario de verano (UTC-3) estas horas
+  # equivalen a 08:00 y cada 2h; en invierno (UTC-4) corren una hora antes.
+  # Descomentar solo si se quiere el respaldo.
+  # schedule:
+  #   - cron: "0 11,13,15,17,19,21 * * *"   # incremental
+  #   - cron: "30 5 * * *"                  # total
+
+concurrency:
+  group: transformar-encuesta-especial
+  cancel-in-progress: false
+
+jobs:
+  transformar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Preparar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Determinar modo
+        id: modo
+        run: |
+          case "${{ github.event_name }}" in
+            workflow_dispatch)
+              MODO="${{ github.event.inputs.modo }}"
+              DRY="${{ github.event.inputs.dry_run }}"
+              ;;
+            repository_dispatch)
+              MODO="${{ github.event.action }}"
+              DRY="false"
+              ;;
+            schedule)
+              if [ "${{ github.event.schedule }}" = "30 5 * * *" ]; then
+                MODO="total"
+              else
+                MODO="incremental"
+              fi
+              DRY="false"
+              ;;
+            *)
+              MODO="incremental"
+              DRY="false"
+              ;;
+          esac
+          echo "modo=$MODO" >> "$GITHUB_OUTPUT"
+          echo "dry=$DRY" >> "$GITHUB_OUTPUT"
+          echo "Ejecutando en modo: $MODO (dry_run=$DRY)"
+
+      - name: Ejecutar transformacion
+        env:
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+        run: |
+          EXTRA=""
+          if [ "${{ steps.modo.outputs.dry }}" = "true" ]; then
+            EXTRA="--dry-run"
+          fi
+          python transformar.py --modo "${{ steps.modo.outputs.modo }}" $EXTRA
