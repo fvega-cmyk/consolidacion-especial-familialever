@@ -10,13 +10,19 @@ Destino : planilla con una sola hoja "BBDD", donde cada fila de detalle
           BU con el nombre de la hoja de origen y el ID de la fila hija en
           ID_Detalle.
 
+Las encuestas sin ninguna fila de detalle tambien se escriben: van una sola
+vez, con BU, ID_Detalle y las columnas de producto vacias.
+
 Modos:
   --modo total        Reconstruye la hoja destino completa. Unico modo que
                       elimina filas que ya no existen en el origen.
-  --modo incremental  Agrega las filas nuevas y actualiza en el sitio las que
-                      cambiaron. No borra nada.
+  --modo incremental  Agrega las filas nuevas, actualiza en el sitio las que
+                      cambiaron y borra las filas vacias cuya encuesta ya
+                      tiene detalle. No borra nada mas.
 
-Llave de identidad de una fila: (BU, ID_Detalle).
+Llave de identidad de una fila: (BU, ID_Detalle, ID).
+El ID de la cabecera forma parte de la llave porque las filas sin detalle
+tienen BU e ID_Detalle vacios y solo se distinguen por el.
 """
 
 import argparse
@@ -86,8 +92,12 @@ ENCABEZADO_DESTINO = (
     + COLUMNAS_HIJA_RESTO
 )
 
-IDX_BU = ENCABEZADO_DESTINO.index("BU")  # 18
+IDX_ID = ENCABEZADO_DESTINO.index("ID")                  # 0
+IDX_BU = ENCABEZADO_DESTINO.index("BU")                  # 18
 IDX_ID_DETALLE = ENCABEZADO_DESTINO.index("ID_Detalle")  # 19
+
+# Bloque de columnas de detalle en blanco, para las encuestas sin productos.
+DETALLE_VACIO = [""] * (len(ENCABEZADO_DESTINO) - len(COLUMNAS_PADRE))
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 MAX_FILAS_POR_LOTE = 5000
@@ -185,6 +195,15 @@ def valor(fila, posicion):
     return str(fila[posicion]).strip()
 
 
+def llave(fila):
+    """Identidad de una fila del destino: (BU, ID_Detalle, ID de cabecera)."""
+    return (
+        norm(valor(fila, IDX_BU)),
+        valor(fila, IDX_ID_DETALLE),
+        valor(fila, IDX_ID),
+    )
+
+
 def equivalentes(a, b):
     """Compara dos celdas tolerando formato numerico (coma o punto decimal)."""
     a, b = str(a).strip(), str(b).strip()
@@ -196,6 +215,17 @@ def equivalentes(a, b):
         )
     except ValueError:
         return a.casefold() == b.casefold()
+
+
+def agrupar_consecutivos(numeros):
+    """[2,3,4,9,10] -> [(2,4),(9,10)]. Para borrar filas por rango."""
+    rangos = []
+    for numero in sorted(numeros):
+        if rangos and numero == rangos[-1][1] + 1:
+            rangos[-1][1] = numero
+        else:
+            rangos.append([numero, numero])
+    return [tuple(r) for r in rangos]
 
 
 # ---------------------------------------------------------------------------
@@ -225,7 +255,10 @@ def construir_filas(gc):
             continue
         padres[clave] = [valor(fila, p) for p in posiciones_padre]
         orden_padres.append(clave)
-    log(f"  {len(padres)} encuestas leidas" + (f", {duplicados} ID duplicados omitidos" if duplicados else ""))
+    log(
+        f"  {len(padres)} encuestas leidas"
+        + (f", {duplicados} ID duplicados omitidos" if duplicados else "")
+    )
 
     detalle = {}
     huerfanas_totales = 0
@@ -241,33 +274,49 @@ def construir_filas(gc):
         pos_resto = [indice_columna(encabezado, c, bu) for c in COLUMNAS_HIJA_RESTO]
 
         huerfanas = 0
+        sin_id = 0
         for fila in filas:
             padre = valor(fila, pos_bbdd)
             if padre not in padres:
                 huerfanas += 1
                 continue
-            registro = (
-                [bu, valor(fila, pos_detalle_id), valor(fila, pos_producto)]
-                + [valor(fila, p) for p in pos_resto]
-            )
+            id_detalle = valor(fila, pos_detalle_id)
+            if not id_detalle:
+                sin_id += 1
+            registro = [bu, id_detalle, valor(fila, pos_producto)] + [
+                valor(fila, p) for p in pos_resto
+            ]
             detalle.setdefault((padre, bu), []).append(registro)
         huerfanas_totales += huerfanas
         contadas = sum(len(v) for k, v in detalle.items() if k[1] == bu)
-        log(f"  {contadas} filas validas" + (f", {huerfanas} sin cabecera correspondiente" if huerfanas else ""))
+        log(
+            f"  {contadas} filas validas"
+            + (f", {huerfanas} sin cabecera correspondiente" if huerfanas else "")
+            + (f", {sin_id} sin ID propio" if sin_id else "")
+        )
 
     salida = []
+    sin_detalle = 0
     for clave in orden_padres:
+        registros = []
         for bu in HOJAS_HIJAS:
-            for registro in detalle.get((clave, bu), []):
+            registros.extend(detalle.get((clave, bu), []))
+        if registros:
+            for registro in registros:
                 salida.append(padres[clave] + registro)
+        else:
+            salida.append(padres[clave] + list(DETALLE_VACIO))
+            sin_detalle += 1
 
-    encuestas_con_detalle = len({k[0] for k in detalle})
     log(
-        f"Tabla plana: {len(salida)} filas desde {encuestas_con_detalle} encuestas "
-        f"({len(padres) - encuestas_con_detalle} encuestas sin detalle omitidas)"
+        f"Tabla plana: {len(salida)} filas desde {len(padres)} encuestas "
+        f"({sin_detalle} sin detalle, escritas con producto vacio)"
     )
     if huerfanas_totales:
-        log(f"AVISO: {huerfanas_totales} filas de detalle apuntan a un ID_BBDD inexistente")
+        log(
+            f"AVISO: {huerfanas_totales} filas de detalle apuntan a un "
+            f"ID_BBDD inexistente y quedaron fuera"
+        )
     return salida
 
 
@@ -279,6 +328,28 @@ def construir_filas(gc):
 def hoja_destino(gc):
     planilla = reintentar(gc.open_by_key, DESTINO_ID)
     return reintentar(planilla.worksheet, HOJA_DESTINO)
+
+
+def leer_destino(hoja):
+    """Devuelve {llave: (numero_de_fila, fila)} validando el encabezado."""
+    valores = reintentar(hoja.get_all_values)
+    if not valores:
+        sys.exit("ERROR: la hoja destino esta vacia. Corre primero '--modo total'.")
+
+    esperado = [norm(c) for c in ENCABEZADO_DESTINO]
+    leido = [norm(c) for c in valores[0][: len(ENCABEZADO_DESTINO)]]
+    if leido != esperado:
+        sys.exit(
+            "ERROR: el encabezado de la hoja destino no coincide con el esperado.\n"
+            f"  Esperado: {ENCABEZADO_DESTINO}\n"
+            f"  Leido   : {valores[0]}\n"
+            "Corre '--modo total' para regenerarla."
+        )
+
+    indice = {}
+    for numero, fila in enumerate(valores[1:], start=2):
+        indice[llave(fila)] = (numero, fila)
+    return indice
 
 
 def escribir_total(hoja, filas, dry_run):
@@ -295,11 +366,10 @@ def escribir_total(hoja, filas, dry_run):
     bloque = [ENCABEZADO_DESTINO] + filas
     for inicio in range(0, len(bloque), MAX_FILAS_POR_LOTE):
         trozo = bloque[inicio : inicio + MAX_FILAS_POR_LOTE]
-        rango = f"A{inicio + 1}"
         reintentar(
             hoja.update,
             values=trozo,
-            range_name=rango,
+            range_name=f"A{inicio + 1}",
             value_input_option=VALUE_INPUT_OPTION,
         )
         log(f"  escritas filas {inicio + 1}-{inicio + len(trozo)}")
@@ -307,30 +377,31 @@ def escribir_total(hoja, filas, dry_run):
 
 
 def escribir_incremental(hoja, filas, dry_run):
-    valores = reintentar(hoja.get_all_values)
-    if not valores:
-        sys.exit(
-            "ERROR: la hoja destino esta vacia. Corre primero '--modo total'."
-        )
+    existentes = leer_destino(hoja)
 
-    encabezado_actual = [norm(c) for c in valores[0][: len(ENCABEZADO_DESTINO)]]
-    if encabezado_actual != [norm(c) for c in ENCABEZADO_DESTINO]:
-        sys.exit(
-            "ERROR: el encabezado de la hoja destino no coincide con el esperado.\n"
-            f"  Esperado: {ENCABEZADO_DESTINO}\n"
-            f"  Leido   : {valores[0]}\n"
-            "Corre '--modo total' para regenerarla."
-        )
+    # Encuestas que ya tienen al menos una fila con producto en el origen.
+    ids_con_detalle = {
+        valor(fila, IDX_ID) for fila in filas if valor(fila, IDX_BU)
+    }
 
-    existentes = {}
-    for numero, fila in enumerate(valores[1:], start=2):
-        clave = (norm(valor(fila, IDX_BU)), valor(fila, IDX_ID_DETALLE))
-        if clave[1]:
-            existentes[clave] = (numero, fila)
+    # Filas vacias en el destino cuya encuesta ya tiene detalle: quedaron
+    # obsoletas y hay que sacarlas para no duplicar la encuesta.
+    obsoletas = [
+        numero
+        for clave, (numero, _) in existentes.items()
+        if not clave[0] and clave[2] in ids_con_detalle
+    ]
+
+    if obsoletas:
+        log(f"Filas vacias que ya tienen detalle y se eliminan: {len(obsoletas)}")
+        if not dry_run:
+            for inicio, fin in sorted(agrupar_consecutivos(obsoletas), reverse=True):
+                reintentar(hoja.delete_rows, inicio, fin)
+            # Los numeros de fila cambiaron: hay que releer el destino.
+            existentes = leer_destino(hoja)
 
     nuevas = []
     cambios = []
-    sin_llave = 0
     posiciones_sin_comparar = {
         ENCABEZADO_DESTINO.index(c)
         for c in COLUMNAS_SIN_COMPARAR
@@ -338,11 +409,7 @@ def escribir_incremental(hoja, filas, dry_run):
     }
 
     for fila in filas:
-        id_detalle = valor(fila, IDX_ID_DETALLE)
-        if not id_detalle:
-            sin_llave += 1
-            continue
-        clave = (norm(valor(fila, IDX_BU)), id_detalle)
+        clave = llave(fila)
         if clave not in existentes:
             nuevas.append(fila)
             continue
@@ -356,8 +423,6 @@ def escribir_incremental(hoja, filas, dry_run):
             cambios.append((numero, fila))
 
     log(f"Incremental: {len(nuevas)} nuevas, {len(cambios)} modificadas")
-    if sin_llave:
-        log(f"AVISO: {sin_llave} filas de detalle sin ID propio, no se pueden sincronizar")
 
     if dry_run:
         log("[dry-run] no se escribio nada")
@@ -365,10 +430,9 @@ def escribir_incremental(hoja, filas, dry_run):
 
     if nuevas:
         for inicio in range(0, len(nuevas), MAX_FILAS_POR_LOTE):
-            trozo = nuevas[inicio : inicio + MAX_FILAS_POR_LOTE]
             reintentar(
                 hoja.append_rows,
-                trozo,
+                nuevas[inicio : inicio + MAX_FILAS_POR_LOTE],
                 value_input_option=VALUE_INPUT_OPTION,
                 table_range="A1",
             )
@@ -398,7 +462,7 @@ def main():
         "--modo",
         choices=["total", "incremental"],
         required=True,
-        help="total reconstruye todo; incremental agrega y actualiza",
+        help="total reconstruye todo; incremental agrega, actualiza y limpia vacias",
     )
     parser.add_argument(
         "--dry-run",
