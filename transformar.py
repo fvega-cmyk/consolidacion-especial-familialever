@@ -61,7 +61,9 @@ VALUE_INPUT_OPTION = "USER_ENTERED"
 # (tipicamente "Fecha" u "Hora" si las dos planillas tienen locale distinto).
 COLUMNAS_SIN_COMPARAR = set()
 
-# Las 18 columnas de cabecera, en el orden en que deben quedar en el destino.
+# Las 20 columnas de cabecera, en el orden en que deben quedar en el destino.
+# Los nombres se comparan sin acentos, sin signos y con los espacios
+# normalizados, asi que "Cantidad  Toldo 3x3" con doble espacio tambien calza.
 COLUMNAS_PADRE = [
     "ID",
     "Fecha",
@@ -80,7 +82,9 @@ COLUMNAS_PADRE = [
     "¿El toldo 3X3 es Familia Lever?",
     "¿El toldo 4,5X3 es Familia Lever?",
     "Categorías",
-    "Foto",
+    "Foto Puesto General",
+    "Foto Productos Unilever 1",
+    "Foto Productos Unilever 2",
 ]
 
 # Columnas de la hoja hija que se copian tal cual (despues de Producto Final).
@@ -93,8 +97,8 @@ ENCABEZADO_DESTINO = (
 )
 
 IDX_ID = ENCABEZADO_DESTINO.index("ID")                  # 0
-IDX_BU = ENCABEZADO_DESTINO.index("BU")                  # 18
-IDX_ID_DETALLE = ENCABEZADO_DESTINO.index("ID_Detalle")  # 19
+IDX_BU = ENCABEZADO_DESTINO.index("BU")                  # 20
+IDX_ID_DETALLE = ENCABEZADO_DESTINO.index("ID_Detalle")  # 21
 
 # Bloque de columnas de detalle en blanco, para las encuestas sin productos.
 DETALLE_VACIO = [""] * (len(ENCABEZADO_DESTINO) - len(COLUMNAS_PADRE))
@@ -123,6 +127,12 @@ def norm(texto):
     texto = texto.replace("¿", "").replace("?", "")
     texto = re.sub(r"\s+", " ", texto)
     return texto
+
+
+def letra_columna(numero):
+    """Numero de columna -> letras. 20 -> 'T', 27 -> 'AA'. Sirve para
+    cualquier ancho, a diferencia de recortar el primer caracter."""
+    return re.sub(r"\d+", "", rowcol_to_a1(1, numero))
 
 
 def reintentar(funcion, *args, **kwargs):
@@ -341,8 +351,8 @@ def leer_destino(hoja):
     if leido != esperado:
         sys.exit(
             "ERROR: el encabezado de la hoja destino no coincide con el esperado.\n"
-            f"  Esperado: {ENCABEZADO_DESTINO}\n"
-            f"  Leido   : {valores[0]}\n"
+            f"  Esperado ({len(ENCABEZADO_DESTINO)} columnas): {ENCABEZADO_DESTINO}\n"
+            f"  Leido    ({len(valores[0])} columnas): {valores[0]}\n"
             "Corre '--modo total' para regenerarla."
         )
 
@@ -439,7 +449,7 @@ def escribir_incremental(hoja, filas, dry_run):
         log(f"  {len(nuevas)} filas agregadas al final")
 
     if cambios:
-        ultima = rowcol_to_a1(1, len(ENCABEZADO_DESTINO))[0]
+        ultima = letra_columna(len(ENCABEZADO_DESTINO))
         lote = [
             {"range": f"A{numero}:{ultima}{numero}", "values": [fila]}
             for numero, fila in cambios
@@ -450,7 +460,7 @@ def escribir_incremental(hoja, filas, dry_run):
                 lote[inicio : inicio + 500],
                 value_input_option=VALUE_INPUT_OPTION,
             )
-        log(f"  {len(cambios)} filas actualizadas en el sitio")
+        log(f"  {len(cambios)} filas actualizadas en el sitio (A:{ultima})")
 
 
 # ---------------------------------------------------------------------------
