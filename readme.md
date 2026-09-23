@@ -1,6 +1,6 @@
 # Transformación Encuesta Especial → BBDD plana
 
-Convierte el modelo padre-hijo de la Encuesta Especial en una tabla plana de 25
+Convierte el modelo padre-hijo de la Encuesta Especial en una tabla plana de 27
 columnas, donde cada fila de detalle (HC / PC / BnW / NT) genera una fila con los
 datos de la cabecera repetidos hacia abajo.
 
@@ -8,6 +8,31 @@ datos de la cabecera repetidos hacia abajo.
 |---|---|---|
 | Planilla | `1Iaun6-VepJv23KNnLshefKrWsUmYNNf8UVPk757FYvQ` | `12buRUwCgWxnVL9n-GDuI4eiv8SBFAFW1v80ksR8aAd4` |
 | Hojas | `BBDD Encuesta Especial`, `HC`, `PC`, `BnW`, `NT` | `BBDD` |
+
+## Estructura de la hoja destino
+
+20 columnas de cabecera, terminando en las tres de foto:
+
+```
+ID · Fecha · Hora · Email · Feria · Día de postura · Miembro · Tipo · Club ·
+Toldo · Cantidad Toldo 3x3 · Cantidad Toldo 4,5x3 ·
+Cantidad Estructura de metal con tela · Cantidad Carro ·
+¿El toldo 3X3 es Familia Lever? · ¿El toldo 4,5X3 es Familia Lever? ·
+Categorías · Foto Puesto General · Foto Productos Unilever 1 ·
+Foto Productos Unilever 2
+```
+
+más las 7 del detalle:
+
+```
+BU · ID_Detalle · Producto Final · Marcas · Tipo de producto ·
+Cantidad SKU · Unidades
+```
+
+Los nombres se comparan sin acentos, sin signos de interrogación y con los
+espacios normalizados, así que un doble espacio en un encabezado no rompe nada.
+Si el encabezado del destino no calza con esta lista, el script aborta **antes**
+de escribir y muestra en el log el esperado contra el leído.
 
 ## Reglas de negocio implementadas
 
@@ -43,36 +68,36 @@ queda en el modo total.
 El incremental agrega al final, así que durante el día el orden se va desordenando
 respecto de la encuesta. La reconstrucción total lo vuelve a dejar ordenado.
 
+## Cambios de estructura en las planillas
+
+Al agregar, quitar o renombrar una columna hay que hacer tres cosas, en este orden:
+
+1. Aplicar el cambio en la planilla origen y en la de destino.
+2. Actualizar `COLUMNAS_PADRE` (o `COLUMNAS_HIJA_RESTO`) en `transformar.py`. Los índices, el ancho de la hoja y el rango de actualización se derivan solos de esa lista.
+3. Correr una vez en modo `total`, no incremental, para que las filas ya escritas queden con la estructura nueva.
+
 ## Puesta en marcha
 
 1. **Service account.** En la consola de GCP, crear (o reutilizar) una service account y generar una llave JSON. No necesita ningún rol de IAM: el acceso se otorga compartiendo las planillas. Habilitar la **Google Sheets API** en ese proyecto.
-2. **Compartir las planillas** con el correo de la service account:
-   - Planilla origen: permiso de **Lector**.
-   - Planilla destino: permiso de **Editor**.
-3. **Secret en GitHub.** `Settings → Secrets and variables → Actions → pestaña Secrets → New repository secret`, nombre `GCP_SA_KEY`, y pegar el JSON completo de la llave.
-4. **Primera corrida.** `Actions → Transformar Encuesta Especial → Run workflow`, modo `total` con `dry_run` activado para revisar el log. Si los conteos cuadran, repetir sin `dry_run`.
+2. **Compartir las planillas** con el correo de la service account: origen como **Lector**, destino como **Editor**.
+3. **Secret en GitHub.** `Settings → Secrets and variables → Actions → pestaña Secrets → New repository secret`, nombre `GCP_SA_KEY`, y pegar el JSON completo.
+4. **Primera corrida.** `Actions → Transformar Encuesta Especial → Run workflow`, modo `total` con `dry_run` activado para revisar el log.
 
 ## Programación con cron-job.org
 
-Crear un Personal Access Token con permiso `repo` (o fine-grained con `Contents: read and write`) y configurar dos jobs:
+Dos jobs, ambos `POST` a
+`https://api.github.com/repos/USUARIO/consolidacion-especial-familialever/dispatches`
+con los headers `Accept: application/vnd.github+json`,
+`Authorization: Bearer TOKEN`, `X-GitHub-Api-Version: 2022-11-28` y
+`Content-Type: application/json`.
 
-- **URL** (ambos): `https://api.github.com/repos/USUARIO/consolidacion-especial-familialever/dispatches`
-- **Método**: `POST`
-- **Headers**:
-  ```
-  Accept: application/vnd.github+json
-  Authorization: Bearer TU_TOKEN
-  X-GitHub-Api-Version: 2022-11-28
-  Content-Type: application/json
-  ```
-
-| Job | Frecuencia sugerida | Body |
+| Job | Frecuencia | Body |
 |---|---|---|
 | Incremental | cada 30–60 min en horario hábil | `{"event_type": "incremental"}` |
 | Total | una vez al día, de madrugada | `{"event_type": "total"}` |
 
-Como cron-job.org maneja el huso horario de Chile directamente, no hay que
-preocuparse del salto UTC-3 / UTC-4.
+La respuesta correcta es **204 sin contenido**. `repository_dispatch` solo dispara
+workflows que estén en la rama por defecto del repositorio.
 
 ## Ajustes en `transformar.py`
 
