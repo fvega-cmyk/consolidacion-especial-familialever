@@ -1,6 +1,6 @@
 # Transformación Encuesta Especial → BBDD plana
 
-Convierte el modelo padre-hijo de la Encuesta Especial en una tabla plana de 29
+Convierte el modelo padre-hijo de la Encuesta Especial en una tabla plana de 33
 columnas, donde cada fila de detalle (HC / PC / BnW / NT) genera una fila con los
 datos de la cabecera repetidos hacia abajo.
 
@@ -11,7 +11,7 @@ datos de la cabecera repetidos hacia abajo.
 
 ## Estructura de la hoja destino
 
-22 columnas de cabecera, terminando en las cuatro de foto:
+26 columnas de cabecera, terminando en las cuatro de link:
 
 ```
 ID · Fecha · Hora · Email · Feria · Día de postura · RUT · Miembro · Tipo ·
@@ -19,8 +19,32 @@ Club · Toldo · Cantidad Toldo 3x3 · Cantidad Toldo 4,5x3 ·
 Cantidad Estructura de metal con tela · Cantidad Carro ·
 ¿El toldo 3X3 es Familia Lever? · ¿El toldo 4,5X3 es Familia Lever? ·
 Categorías · Foto Puesto General · Foto Productos Unilever 1 ·
-Foto Productos Unilever 2 · Foto Productos Unilever 3
+Foto Productos Unilever 2 · Foto Productos Unilever 3 ·
+Link Foto 1 · Link Foto 2 · Link Foto 3 · Link Foto 4
 ```
+
+## Hipervínculos
+
+Las columnas de `COLUMNAS_HIPERVINCULO` (las cuatro `Link Foto`) se leen en modo
+FORMULA, en el origen y en el destino. Sin eso, una fórmula
+`=HIPERVINCULO("url"; "texto")` se leería como `texto` y la URL se perdería; y
+como el destino se leería distinto que el origen, el incremental marcaría todas
+las filas como modificadas en cada corrida.
+
+Qué sobrevive al traspaso:
+
+| Cómo está guardado en el origen | Viaja al consolidado |
+|---|---|
+| URL en texto plano | Sí, y Sheets la vuelve a mostrar como link |
+| Fórmula `=HIPERVINCULO(...)` | Sí, se copia la fórmula completa |
+| Enlace insertado como formato (Insertar → Enlace) | **No**, la URL vive en el formato de la celda y la API de valores no la ve |
+
+El tercer caso se avisa en el log contando las celdas de link cuyo contenido no
+es ni URL ni fórmula. La solución es que el origen guarde la URL en texto plano
+o una fórmula `HIPERVINCULO`.
+
+`VALUE_INPUT_OPTION` debe quedarse en `USER_ENTERED`: con `RAW` las fórmulas se
+escribirían como texto literal y los links dejarían de funcionar.
 
 más las 7 del detalle:
 
