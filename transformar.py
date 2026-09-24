@@ -13,6 +13,10 @@ Destino : planilla con una sola hoja "BBDD", donde cada fila de detalle
 Las encuestas sin ninguna fila de detalle tambien se escriben: van una sola
 vez, con BU, ID_Detalle y las columnas de producto vacias.
 
+Las columnas listadas en COLUMNAS_HIPERVINCULO se leen en modo FORMULA, tanto
+del origen como del destino, para que una formula HIPERVINCULO viaje completa
+en vez de perder la URL y quedarse solo con el texto visible.
+
 Modos:
   --modo total        Reconstruye la hoja destino completa. Unico modo que
                       elimina filas que ya no existen en el origen.
@@ -37,7 +41,7 @@ from datetime import datetime, timezone
 import gspread
 from google.oauth2.service_account import Credentials
 from gspread.exceptions import APIError
-from gspread.utils import rowcol_to_a1
+from gspread.utils import ValueRenderOption, rowcol_to_a1
 
 # ---------------------------------------------------------------------------
 # CONFIGURACION
@@ -52,8 +56,8 @@ HOJA_DESTINO = "BBDD"
 # El orden de esta lista define el orden de salida dentro de cada encuesta.
 HOJAS_HIJAS = ["HC", "PC", "BnW", "NT"]
 
-# USER_ENTERED deja que Sheets interprete fechas y numeros (recomendado para
-# tablas dinamicas). RAW los guarda como texto literal.
+# USER_ENTERED es obligatorio para que los hipervinculos funcionen: con RAW
+# las formulas se escribirian como texto literal y el link se pierde.
 VALUE_INPUT_OPTION = "USER_ENTERED"
 
 # Columnas excluidas de la comparacion en modo incremental. Usar si una
@@ -63,7 +67,7 @@ COLUMNAS_SIN_COMPARAR = set()
 
 # Las 22 columnas de cabecera, en el orden en que deben quedar en el destino.
 # Los nombres se comparan sin acentos, sin signos y con los espacios
-# normalizados, asi que "Cantidad  Toldo 3x3" con doble espacio tambien calza.
+# normalizados, asi que un doble espacio en un encabezado no rompe nada.
 COLUMNAS_PADRE = [
     "ID",
     "Fecha",
@@ -87,7 +91,14 @@ COLUMNAS_PADRE = [
     "Foto Productos Unilever 1",
     "Foto Productos Unilever 2",
     "Foto Productos Unilever 3",
+    "Link Foto 1",
+    "Link Foto 2",
+    "Link Foto 3",
+    "Link Foto 4",
 ]
+
+# Columnas que se leen en modo FORMULA para conservar el hipervinculo.
+COLUMNAS_HIPERVINCULO = ["Link Foto 1", "Link Foto 2", "Link Foto 3", "Link Foto 4"]
 
 # Columnas de la hoja hija que se copian tal cual (despues de Producto Final).
 COLUMNAS_HIJA_RESTO = ["Marcas", "Tipo de producto", "Cantidad SKU", "Unidades"]
@@ -99,8 +110,8 @@ ENCABEZADO_DESTINO = (
 )
 
 IDX_ID = ENCABEZADO_DESTINO.index("ID")                  # 0
-IDX_BU = ENCABEZADO_DESTINO.index("BU")                  # 22
-IDX_ID_DETALLE = ENCABEZADO_DESTINO.index("ID_Detalle")  # 23
+IDX_BU = ENCABEZADO_DESTINO.index("BU")                  # 26
+IDX_ID_DETALLE = ENCABEZADO_DESTINO.index("ID_Detalle")  # 27
 
 # Bloque de columnas de detalle en blanco, para las encuestas sin productos.
 DETALLE_VACIO = [""] * (len(ENCABEZADO_DESTINO) - len(COLUMNAS_PADRE))
@@ -132,7 +143,7 @@ def norm(texto):
 
 
 def letra_columna(numero):
-    """Numero de columna -> letras. 20 -> 'T', 27 -> 'AA'. Sirve para
+    """Numero de columna -> letras. 26 -> 'Z', 33 -> 'AG'. Sirve para
     cualquier ancho, a diferencia de recortar el primer caracter."""
     return re.sub(r"\d+", "", rowcol_to_a1(1, numero))
 
@@ -165,10 +176,67 @@ def cliente_sheets():
     return gspread.authorize(credenciales)
 
 
+def parece_link(celda):
+    """True si la celda ya trae la URL: formula o URL en texto plano."""
+    texto = str(celda).strip()
+    return texto.startswith("=") or texto.lower().startswith(("http://", "https://"))
+
+
+def leer_con_formulas(hoja):
+    """Lee la hoja completa. Las columnas de COLUMNAS_HIPERVINCULO se toman de
+    una segunda lectura en modo FORMULA, para no perder la URL de las formulas
+    HIPERVINCULO. El resto se toma del valor visible."""
+    valores = reintentar(hoja.get_all_values)
+    if not valores:
+        return []
+
+    objetivo = {norm(c) for c in COLUMNAS_HIPERVINCULO}
+    posiciones = [i for i, c in enumerate(valores[0]) if norm(c) in objetivo]
+    if not posiciones:
+        return valores
+
+    formulas = reintentar(
+        hoja.get_values, value_render_option=ValueRenderOption.formula
+    )
+    for numero in range(1, len(valores)):
+        fila_formula = formulas[numero] if numero < len(formulas) else []
+        for posicion in posiciones:
+            if posicion >= len(fila_formula):
+                continue
+            crudo = str(fila_formula[posicion]).strip()
+            if not crudo:
+                continue
+            while len(valores[numero]) <= posicion:
+                valores[numero].append("")
+            valores[numero][posicion] = crudo
+    return valores
+
+
+def avisar_links_sin_url(encabezado, filas):
+    """Detecta celdas de link con texto que no es URL ni formula: son links
+    insertados como formato, que la API de valores no puede leer."""
+    objetivo = {norm(c) for c in COLUMNAS_HIPERVINCULO}
+    posiciones = [i for i, c in enumerate(encabezado) if norm(c) in objetivo]
+    sospechosas = 0
+    for fila in filas:
+        for posicion in posiciones:
+            celda = valor(fila, posicion)
+            if celda and not parece_link(celda):
+                sospechosas += 1
+    if sospechosas:
+        log(
+            f"AVISO: {sospechosas} celdas de link traen texto sin URL. "
+            "Probablemente son enlaces insertados como formato (Insertar > "
+            "Enlace), que la API de valores no puede leer. Para que viajen al "
+            "consolidado, el origen debe guardar la URL en texto plano o una "
+            "formula HIPERVINCULO."
+        )
+
+
 def leer_tabla(planilla, nombre_hoja):
     """Devuelve (encabezado, filas_no_vacias) de una hoja."""
     hoja = reintentar(planilla.worksheet, nombre_hoja)
-    valores = reintentar(hoja.get_all_values)
+    valores = leer_con_formulas(hoja)
     if not valores:
         return [], []
     encabezado = valores[0]
@@ -254,6 +322,7 @@ def construir_filas(gc):
     posiciones_padre = [
         indice_columna(encabezado, c, HOJA_PADRE) for c in COLUMNAS_PADRE
     ]
+    avisar_links_sin_url(encabezado, filas_padre)
 
     padres = {}
     orden_padres = []
@@ -343,8 +412,10 @@ def hoja_destino(gc):
 
 
 def leer_destino(hoja):
-    """Devuelve {llave: (numero_de_fila, fila)} validando el encabezado."""
-    valores = reintentar(hoja.get_all_values)
+    """Devuelve {llave: (numero_de_fila, fila)} validando el encabezado. Las
+    columnas de link se leen en modo FORMULA, igual que en el origen, para que
+    la comparacion del incremental compare lo mismo contra lo mismo."""
+    valores = leer_con_formulas(hoja)
     if not valores:
         sys.exit("ERROR: la hoja destino esta vacia. Corre primero '--modo total'.")
 
