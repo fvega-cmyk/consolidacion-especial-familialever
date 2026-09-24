@@ -25,38 +25,29 @@ Link Foto 1 · Link Foto 2 · Link Foto 3 · Link Foto 4
 
 ## Hipervínculos
 
-Las columnas de `COLUMNAS_HIPERVINCULO` (las cuatro `Link Foto`) se leen en modo
-FORMULA, en el origen y en el destino. Sin eso, una fórmula
-`=HIPERVINCULO("url"; "texto")` se leería como `texto` y la URL se perdería; y
-como el destino se leería distinto que el origen, el incremental marcaría todas
-las filas como modificadas en cada corrida.
+Las columnas de `COLUMNAS_HIPERVINCULO` (las cuatro `Link Foto`) **no se copian
+como fórmula**. Una fórmula del origen puede apuntar a otra celda de su misma
+fila, por ejemplo `=HIPERVINCULO(S2;"ver")`, y esa referencia no significa nada
+en el consolidado: como la cabecera se repite en varias filas de detalle, todas
+quedarían apuntando a la misma celda equivocada.
 
-Qué sobrevive al traspaso:
+En su lugar se lee el campo `hyperlink` de los metadatos de cada celda
+(`spreadsheets.get` con `includeGridData`), que entrega la URL ya resuelta sin
+importar cómo se construyó: URL en texto plano, fórmula `HIPERVINCULO` con
+referencias, o enlace insertado como formato. Esa URL es la que se escribe.
 
-| Cómo está guardado en el origen | Viaja al consolidado |
-|---|---|
-| URL en texto plano | Sí, y Sheets la vuelve a mostrar como link |
-| Fórmula `=HIPERVINCULO(...)` | Sí, se copia la fórmula completa |
-| Enlace insertado como formato (Insertar → Enlace) | **No**, la URL vive en el formato de la celda y la API de valores no la ve |
+`FORMATO_LINK` define qué se escribe:
 
-El tercer caso se avisa en el log contando las celdas de link cuyo contenido no
-es ni URL ni fórmula. La solución es que el origen guarde la URL en texto plano
-o una fórmula `HIPERVINCULO`.
+| Valor | Qué escribe | Cuándo usarlo |
+|---|---|---|
+| `"url"` (por defecto) | La URL en texto plano, que Sheets muestra como link | Recomendado: inmune al locale y estable para la comparación del incremental |
+| `"formula"` | `=HIPERVINCULO("url"; "texto visible")` con la URL literal | Si se quiere conservar el texto del origen. El separador de argumentos depende del locale de cada planilla; si difieren, el incremental reescribirá todas las filas en cada corrida |
 
-`VALUE_INPUT_OPTION` debe quedarse en `USER_ENTERED`: con `RAW` las fórmulas se
-escribirían como texto literal y los links dejarían de funcionar.
+El log informa cuántos links se resolvieron y avisa si alguna celda tiene texto
+pero ninguna URL asociada.
 
-más las 7 del detalle:
-
-```
-BU · ID_Detalle · Producto Final · Marcas · Tipo de producto ·
-Cantidad SKU · Unidades
-```
-
-Los nombres se comparan sin acentos, sin signos de interrogación y con los
-espacios normalizados, así que un doble espacio en un encabezado no rompe nada.
-Si el encabezado del destino no calza con esta lista, el script aborta **antes**
-de escribir y muestra en el log el esperado contra el leído.
+`VALUE_INPUT_OPTION` debe quedarse en `USER_ENTERED` para que Sheets reconozca
+la URL y la muestre como link.
 
 ## Reglas de negocio implementadas
 
