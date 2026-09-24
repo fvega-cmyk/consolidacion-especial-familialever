@@ -61,7 +61,7 @@ VALUE_INPUT_OPTION = "USER_ENTERED"
 # (tipicamente "Fecha" u "Hora" si las dos planillas tienen locale distinto).
 COLUMNAS_SIN_COMPARAR = set()
 
-# Las 20 columnas de cabecera, en el orden en que deben quedar en el destino.
+# Las 22 columnas de cabecera, en el orden en que deben quedar en el destino.
 # Los nombres se comparan sin acentos, sin signos y con los espacios
 # normalizados, asi que "Cantidad  Toldo 3x3" con doble espacio tambien calza.
 COLUMNAS_PADRE = [
@@ -71,6 +71,7 @@ COLUMNAS_PADRE = [
     "Email",
     "Feria",
     "Día de postura",
+    "RUT",
     "Miembro",
     "Tipo",
     "Club",
@@ -85,6 +86,7 @@ COLUMNAS_PADRE = [
     "Foto Puesto General",
     "Foto Productos Unilever 1",
     "Foto Productos Unilever 2",
+    "Foto Productos Unilever 3",
 ]
 
 # Columnas de la hoja hija que se copian tal cual (despues de Producto Final).
@@ -97,8 +99,8 @@ ENCABEZADO_DESTINO = (
 )
 
 IDX_ID = ENCABEZADO_DESTINO.index("ID")                  # 0
-IDX_BU = ENCABEZADO_DESTINO.index("BU")                  # 20
-IDX_ID_DETALLE = ENCABEZADO_DESTINO.index("ID_Detalle")  # 21
+IDX_BU = ENCABEZADO_DESTINO.index("BU")                  # 22
+IDX_ID_DETALLE = ENCABEZADO_DESTINO.index("ID_Detalle")  # 23
 
 # Bloque de columnas de detalle en blanco, para las encuestas sin productos.
 DETALLE_VACIO = [""] * (len(ENCABEZADO_DESTINO) - len(COLUMNAS_PADRE))
