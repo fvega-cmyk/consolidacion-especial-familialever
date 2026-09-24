@@ -1,6 +1,6 @@
 # Transformación Encuesta Especial → BBDD plana
 
-Convierte el modelo padre-hijo de la Encuesta Especial en una tabla plana de 27
+Convierte el modelo padre-hijo de la Encuesta Especial en una tabla plana de 29
 columnas, donde cada fila de detalle (HC / PC / BnW / NT) genera una fila con los
 datos de la cabecera repetidos hacia abajo.
 
@@ -11,15 +11,15 @@ datos de la cabecera repetidos hacia abajo.
 
 ## Estructura de la hoja destino
 
-20 columnas de cabecera, terminando en las tres de foto:
+22 columnas de cabecera, terminando en las cuatro de foto:
 
 ```
-ID · Fecha · Hora · Email · Feria · Día de postura · Miembro · Tipo · Club ·
-Toldo · Cantidad Toldo 3x3 · Cantidad Toldo 4,5x3 ·
+ID · Fecha · Hora · Email · Feria · Día de postura · RUT · Miembro · Tipo ·
+Club · Toldo · Cantidad Toldo 3x3 · Cantidad Toldo 4,5x3 ·
 Cantidad Estructura de metal con tela · Cantidad Carro ·
 ¿El toldo 3X3 es Familia Lever? · ¿El toldo 4,5X3 es Familia Lever? ·
 Categorías · Foto Puesto General · Foto Productos Unilever 1 ·
-Foto Productos Unilever 2
+Foto Productos Unilever 2 · Foto Productos Unilever 3
 ```
 
 más las 7 del detalle:
