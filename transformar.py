@@ -81,7 +81,7 @@ SEPARADOR_FORMULA = ";"
 # (tipicamente "Fecha" u "Hora" si las dos planillas tienen locale distinto).
 COLUMNAS_SIN_COMPARAR = set()
 
-# Las 26 columnas de cabecera, en el orden en que deben quedar en el destino.
+# Las 28 columnas de cabecera, en el orden en que deben quedar en el destino.
 # Los nombres se comparan sin acentos, sin signos y con los espacios
 # normalizados, asi que un doble espacio en un encabezado no rompe nada.
 COLUMNAS_PADRE = [
@@ -96,10 +96,12 @@ COLUMNAS_PADRE = [
     "Tipo",
     "Club",
     "Toldo",
+    "Cantidad Toldo 2x3",
     "Cantidad Toldo 3x3",
     "Cantidad Toldo 4,5x3",
     "Cantidad Estructura de metal con tela",
     "Cantidad Carro",
+    "El toldo 2X3 es Familia Lever?",
     "¿El toldo 3X3 es Familia Lever?",
     "¿El toldo 4,5X3 es Familia Lever?",
     "Categorías",
@@ -126,8 +128,8 @@ ENCABEZADO_DESTINO = (
 )
 
 IDX_ID = ENCABEZADO_DESTINO.index("ID")                  # 0
-IDX_BU = ENCABEZADO_DESTINO.index("BU")                  # 26
-IDX_ID_DETALLE = ENCABEZADO_DESTINO.index("ID_Detalle")  # 27
+IDX_BU = ENCABEZADO_DESTINO.index("BU")                  # 28
+IDX_ID_DETALLE = ENCABEZADO_DESTINO.index("ID_Detalle")  # 29
 
 # Bloque de columnas de detalle en blanco, para las encuestas sin productos.
 DETALLE_VACIO = [""] * (len(ENCABEZADO_DESTINO) - len(COLUMNAS_PADRE))
